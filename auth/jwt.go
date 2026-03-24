@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -23,14 +24,26 @@ func ValidateMQTTToken(r *http.Request) (*ArenaClaims, error) {
 	}
 
 	token, err := jwt.ParseWithClaims(cookie.Value, &ArenaClaims{}, func(token *jwt.Token) (interface{}, error) {
-		// Verify signature method...
-		// In a real JWK setup we would fetch the key ID from headers
-		// For simplicity/parity with typical node JWT unless JWK is strictly enforced:
-		return JWKSecret, nil
+		// Ensure token algorithm is RSA
+		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
+
+		keyBytes, err := os.ReadFile("jwt.public.pem") // mounted from docker-compose
+		if err != nil {
+			return nil, errors.New("could not read jwt public key")
+		}
+
+		pubKey, err := jwt.ParseRSAPublicKeyFromPEM(keyBytes)
+		if err != nil {
+			return nil, errors.New("could not parse rsa public key")
+		}
+
+		return pubKey, nil
 	})
 
-	if err != nil || (!token.Valid) {
-		return nil, errors.New("invalid token")
+	if err != nil || !token.Valid {
+		return nil, errors.New("invalid token or signature")
 	}
 
 	claims, ok := token.Claims.(*ArenaClaims)
@@ -74,6 +87,31 @@ func HasPublRight(claims *ArenaClaims, topic string) bool {
 	for _, pub := range claims.Publ {
 		if MatchTopic(pub, topic) {
 			return true
+		}
+	}
+	return false
+}
+
+// CanRecordScene verifies if the user has publish rights to scene objects,
+// mirroring the arena-persist checkTokenRights logic for SCENE_OBJECTS.
+func CanRecordScene(claims *ArenaClaims, namespace, sceneId string) bool {
+	// 1. Check wildcards first (e.g., admin or whole scene)
+	topicAny := "realm/s/" + namespace + "/" + sceneId + "/o/+/+"
+	for _, pub := range claims.Publ {
+		if MatchTopic(pub, topicAny) {
+			return true
+		}
+	}
+
+	// 2. Check per-client permissions
+	for _, pub := range claims.Publ {
+		parts := strings.Split(pub, "/")
+		if len(parts) > 5 {
+			clientId := parts[5]
+			topicClient := "realm/s/" + namespace + "/" + sceneId + "/o/" + clientId + "/+"
+			if MatchTopic(pub, topicClient) {
+				return true
+			}
 		}
 	}
 	return false
