@@ -1,0 +1,10 @@
+{
+  "packages": {
+    "arena-recorder": {
+      "release-type": "go",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": true,
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}
