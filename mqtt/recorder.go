@@ -102,8 +102,16 @@ func StartRecording(namespace, sceneId string) error {
 
 	// Message handler
 	handler := func(client mqtt.Client, msg mqtt.Message) {
-		// We could add a timestamp or use the payload's timestamp.
-		// For simplicity, just write the raw MQTT payload per line.
+		var payload map[string]interface{}
+		if err := json.Unmarshal(msg.Payload(), &payload); err == nil {
+			// Inject server receipt timestamp to guarantee monotonically increasing time
+			payload["timestamp"] = time.Now().Format(time.RFC3339Nano)
+			if b, err := json.Marshal(payload); err == nil {
+				session.File.WriteString(string(b) + "\n")
+				return
+			}
+		}
+		// Fallback if parsing fails
 		line := string(msg.Payload()) + "\n"
 		session.File.WriteString(line)
 	}
@@ -152,8 +160,17 @@ func captureInitialState(persistURL string, file *os.File) error {
 	}
 
 	// Write each object as an 'action: create' message
+	now := time.Now().Format(time.RFC3339Nano)
 	for _, obj := range objects {
 		obj["action"] = "create"
+		obj["timestamp"] = now
+		
+		// Map 'attributes' from MongoDB schema to 'data' for MQTT wire protocol schema
+		if attr, ok := obj["attributes"]; ok {
+			obj["data"] = attr
+			delete(obj, "attributes")
+		}
+		
 		b, err := json.Marshal(obj)
 		if err == nil {
 			file.WriteString(string(b) + "\n")
