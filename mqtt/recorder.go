@@ -109,10 +109,16 @@ func StartRecording(namespace, sceneId string) error {
 		// We still continue to record live events
 	}
 
-	// Publish Recording Banner start
-	bannerTopic := FormatTopic("{realm}/s/{nameSpace}/{sceneName}/!record", topicArgs)
-	bannerMsg := `{"status": "recording"}`
-	client.Publish(bannerTopic, 1, true, bannerMsg)
+	// Publish Recording banner via Chat Control Plane
+	chatTopicArgs := map[string]string{
+		"nameSpace":  namespace,
+		"sceneName":  sceneId,
+		"userClient": "arena-recorder",
+		"idTag":      "recorder",
+	}
+	chatTopic := FormatTopic(Topics.Publish.SceneChat, chatTopicArgs)
+	chatMsg := []byte(`{"object_id": "recorder", "action": "recording", "type": "chat-ctrl", "text": "recording_started", "dn": "Recorder"}`)
+	client.Publish(chatTopic, 1, true, chatMsg)
 
 	// Message handler
 	handler := func(client mqtt.Client, msg mqtt.Message) {
@@ -208,15 +214,26 @@ func StopRecording(namespace, sceneId string) error {
 	session.File.Close()
 	delete(sessions, key)
 
-	// Publish Recording Banner stop
+	// Publish Recording banner stop via Chat Control Plane
 	topicArgs := map[string]string{
-		"nameSpace": namespace,
-		"sceneName": sceneId,
+		"nameSpace":  namespace,
+		"sceneName":  sceneId,
+		"userClient": "arena-recorder",
+		"idTag":      "recorder",
 	}
-	bannerTopic := FormatTopic("{realm}/s/{nameSpace}/{sceneName}/!record", topicArgs)
-	bannerMsg := `{"status": "stopped"}`
-	client.Publish(bannerTopic, 1, true, bannerMsg)
+	chatTopic := FormatTopic(Topics.Publish.SceneChat, topicArgs)
+	chatMsg := []byte(`{"object_id": "recorder", "action": "recording", "type": "chat-ctrl", "text": "recording_stopped", "dn": "Recorder"}`)
+	client.Publish(chatTopic, 1, true, chatMsg)
 
 	log.Printf("Stopped recording %s", key)
 	return nil
+}
+
+func IsRecording(namespace, sceneId string) bool {
+	mu.Lock()
+	defer mu.Unlock()
+
+	key := namespace + "/" + sceneId
+	_, exists := sessions[key]
+	return exists
 }

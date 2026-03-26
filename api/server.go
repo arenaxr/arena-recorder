@@ -14,6 +14,7 @@ func StartServer(addr string) error {
 	http.HandleFunc("/recorder/start", startRecordingHandler)
 	http.HandleFunc("/recorder/stop", stopRecordingHandler)
 	http.HandleFunc("/recorder/list", listRecordingsHandler)
+	http.HandleFunc("/recorder/status", recordingStatusHandler)
 	http.HandleFunc("/recorder/files/", serveRecordingFileHandler)
 	return http.ListenAndServe(addr, nil)
 }
@@ -156,6 +157,31 @@ func listRecordingsHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(recordings)
+}
+
+func recordingStatusHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	_, err := auth.ValidateMQTTToken(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	sceneId := r.URL.Query().Get("sceneId")
+	if namespace == "" || sceneId == "" {
+		http.Error(w, "Bad request: missing namespace or sceneId", http.StatusBadRequest)
+		return
+	}
+
+	isRecording := mqtt.IsRecording(namespace, sceneId)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"is_recording": isRecording})
 }
 
 func serveRecordingFileHandler(w http.ResponseWriter, r *http.Request) {
