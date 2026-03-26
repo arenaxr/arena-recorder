@@ -81,7 +81,7 @@ func StartRecording(namespace, sceneId string) error {
 	// Make sure directory exists
 	os.MkdirAll("/recording-store", 0755)
 
-	filename := fmt.Sprintf("/recording-store/%s-%s-%d.jsonl", namespace, sceneId, time.Now().Unix())
+	filename := fmt.Sprintf("/recording-store/%s~%s~%d.jsonl", namespace, sceneId, time.Now().Unix())
 	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return fmt.Errorf("could not create recording file: %v", err)

@@ -127,13 +127,17 @@ func listRecordingsHandler(w http.ResponseWriter, r *http.Request) {
 	for _, f := range files {
 		if !f.IsDir() && strings.HasSuffix(f.Name(), ".jsonl") {
 			name := strings.TrimSuffix(f.Name(), ".jsonl")
-			parts := strings.Split(name, "-")
-			record := map[string]string{"filename": f.Name()}
-			if len(parts) >= 3 {
-				timestamp := parts[len(parts)-1]
-				sceneId := parts[len(parts)-2]
-				namespace := strings.Join(parts[:len(parts)-2], "-")
-				
+			
+			var namespace, sceneId, timestamp string
+			parts := strings.Split(name, "~")
+			if len(parts) == 3 {
+				namespace = parts[0]
+				sceneId = parts[1]
+				timestamp = parts[2]
+			}
+
+			if namespace != "" && sceneId != "" {
+				record := map[string]string{"filename": f.Name()}
 				topicArgs := map[string]string{
 					"nameSpace": namespace,
 					"sceneName": sceneId,
@@ -141,17 +145,17 @@ func listRecordingsHandler(w http.ResponseWriter, r *http.Request) {
 				topic := mqtt.FormatTopic(mqtt.Topics.Subscribe.ScenePublic, topicArgs)
 				topic = strings.ReplaceAll(topic, "+/+/+", "#")
 
-				// Filter list by subl rights
-				if claims.Subject != namespace && !auth.HasSubRight(claims, topic) && !auth.HasPublRight(claims, topic) {
+				// Filter list by subl rights (allow owner, public namespace, or explicit JWT claims)
+				if claims.Subject != namespace && namespace != "public" && !auth.HasSubRight(claims, topic) && !auth.HasPublRight(claims, topic) {
 					continue
 				}
 
 				record["timestamp"] = timestamp
 				record["name"] = name
+				recordings = append(recordings, record)
 			} else {
-				record["name"] = name
+				recordings = append(recordings, map[string]string{"filename": f.Name(), "name": name})
 			}
-			recordings = append(recordings, record)
 		}
 	}
 
@@ -190,7 +194,7 @@ func serveRecordingFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claims, err := auth.ValidateMQTTToken(r)
+	_, err := auth.ValidateMQTTToken(r)
 	if err != nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -203,23 +207,15 @@ func serveRecordingFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := strings.TrimSuffix(filename, ".jsonl")
-	parts := strings.Split(name, "-")
-	if len(parts) >= 3 {
-		sceneId := parts[len(parts)-2]
-		namespace := strings.Join(parts[:len(parts)-2], "-")
-		
-		topicArgs := map[string]string{
-			"nameSpace": namespace,
-			"sceneName": sceneId,
-		}
-		topic := mqtt.FormatTopic(mqtt.Topics.Subscribe.ScenePublic, topicArgs)
-		topic = strings.ReplaceAll(topic, "+/+/+", "#")
+	
+	var namespace, sceneId string
+	parts := strings.Split(name, "~")
+	if len(parts) == 3 {
+		namespace = parts[0]
+		sceneId = parts[1]
+	}
 
-		if claims.Subject != namespace && !auth.HasSubRight(claims, topic) && !auth.HasPublRight(claims, topic) {
-			http.Error(w, "Forbidden - Need subscribe rights to scene", http.StatusForbidden)
-			return
-		}
-	} else {
+	if namespace == "" || sceneId == "" {
 		http.Error(w, "Invalid filename format", http.StatusBadRequest)
 		return
 	}
