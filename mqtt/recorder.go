@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -86,10 +87,18 @@ func StartRecording(namespace, sceneId string) error {
 		return fmt.Errorf("could not create recording file: %v", err)
 	}
 
+	topicArgs := map[string]string{
+		"nameSpace": namespace,
+		"sceneName": sceneId,
+	}
+	sceneTopic := FormatTopic(Topics.Subscribe.ScenePublic, topicArgs)
+	// Replace the wildcards to subscribe to everything in the scene for recording
+	sceneTopic = strings.ReplaceAll(sceneTopic, "+/+/+", "#")
+
 	session := &RecordingSession{
 		Namespace: namespace,
 		SceneId:   sceneId,
-		Topic:     fmt.Sprintf("realm/s/%s/%s/#", namespace, sceneId),
+		Topic:     sceneTopic,
 		File:      file,
 	}
 
@@ -99,6 +108,11 @@ func StartRecording(namespace, sceneId string) error {
 		log.Printf("Warning: Failed to capture initial state: %v", err)
 		// We still continue to record live events
 	}
+
+	// Publish Recording Banner start
+	bannerTopic := FormatTopic("{realm}/s/{nameSpace}/{sceneName}/!record", topicArgs)
+	bannerMsg := `{"status": "recording"}`
+	client.Publish(bannerTopic, 1, true, bannerMsg)
 
 	// Message handler
 	handler := func(client mqtt.Client, msg mqtt.Message) {
@@ -193,6 +207,15 @@ func StopRecording(namespace, sceneId string) error {
 	client.Unsubscribe(session.Topic).Wait()
 	session.File.Close()
 	delete(sessions, key)
+
+	// Publish Recording Banner stop
+	topicArgs := map[string]string{
+		"nameSpace": namespace,
+		"sceneName": sceneId,
+	}
+	bannerTopic := FormatTopic("{realm}/s/{nameSpace}/{sceneName}/!record", topicArgs)
+	bannerMsg := `{"status": "stopped"}`
+	client.Publish(bannerTopic, 1, true, bannerMsg)
 
 	log.Printf("Stopped recording %s", key)
 	return nil

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/arenaxr/arena-recorder/mqtt"
 	"github.com/golang-jwt/jwt/v4"
 )
 
@@ -95,8 +96,14 @@ func HasPublRight(claims *ArenaClaims, topic string) bool {
 // CanRecordScene verifies if the user has publish rights to scene objects,
 // mirroring the arena-persist checkTokenRights logic for SCENE_OBJECTS.
 func CanRecordScene(claims *ArenaClaims, namespace, sceneId string) bool {
+	topicArgs := map[string]string{
+		"nameSpace":  namespace,
+		"sceneName":  sceneId,
+		"userClient": "+",
+		"objectId":   "+",
+	}
 	// 1. Check wildcards first (e.g., admin or whole scene)
-	topicAny := "realm/s/" + namespace + "/" + sceneId + "/o/+/+"
+	topicAny := mqtt.FormatTopic(mqtt.Topics.Publish.SceneObjects, topicArgs)
 	for _, pub := range claims.Publ {
 		if MatchTopic(pub, topicAny) {
 			return true
@@ -108,7 +115,8 @@ func CanRecordScene(claims *ArenaClaims, namespace, sceneId string) bool {
 		parts := strings.Split(pub, "/")
 		if len(parts) > 5 {
 			clientId := parts[5]
-			topicClient := "realm/s/" + namespace + "/" + sceneId + "/o/" + clientId + "/+"
+			topicArgs["userClient"] = clientId
+			topicClient := mqtt.FormatTopic(mqtt.Topics.Publish.SceneObjects, topicArgs)
 			if MatchTopic(pub, topicClient) {
 				return true
 			}
