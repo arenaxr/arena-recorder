@@ -38,3 +38,4 @@ arena-recorder
 .cache/
 .gocache/
 .gopath/
+tmp/
