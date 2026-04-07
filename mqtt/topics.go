@@ -147,10 +147,15 @@ var Topics = struct {
 	},
 }
 
-// FormatTopic helper replaces string literals similarly to template literals in JS
+// FormatTopic helper replaces string literals similarly to template literals in JS.
+// A defensive copy of args is made to avoid mutating the caller's map.
 func FormatTopic(topic string, args map[string]string) string {
-	args["realm"] = Realm
+	merged := make(map[string]string, len(args)+1)
 	for k, v := range args {
+		merged[k] = v
+	}
+	merged["realm"] = Realm
+	for k, v := range merged {
 		topic = strings.ReplaceAll(topic, "{"+k+"}", v)
 	}
 	return topic
