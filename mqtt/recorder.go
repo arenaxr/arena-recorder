@@ -1,6 +1,7 @@
 package mqtt
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,15 +11,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/eclipse/paho.mqtt.golang"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 var client mqtt.Client
 
+// Config holds the service token configuration parsed from /app/config.json
 type Config struct {
 	JwtServiceToken string `json:"jwt_service_token"`
 	JwtServiceUser  string `json:"jwt_service_user"`
 }
+
+// serviceConfig is parsed once during Init() and reused by captureInitialState
+var serviceConfig *Config
 
 func Init() error {
 	opts := mqtt.NewClientOptions()
@@ -29,12 +34,24 @@ func Init() error {
 	opts.AddBroker(brokerUrl)
 	opts.SetClientID("arena-recorder-service")
 
-	// Read service token from config.json if available
+	// Enable auto-reconnect with handlers to recover active recording sessions
+	opts.SetAutoReconnect(true)
+	opts.SetMaxReconnectInterval(30 * time.Second)
+	opts.SetConnectionLostHandler(func(c mqtt.Client, err error) {
+		log.Printf("Warning: MQTT connection lost: %v. Auto-reconnect is enabled.", err)
+	})
+	opts.SetOnConnectHandler(func(c mqtt.Client) {
+		log.Println("MQTT connected/reconnected. Re-subscribing active recording sessions...")
+		resubscribeActiveSessions(c)
+	})
+
+	// Read service token from config.json once and cache it
 	tokenFile := "/app/config.json"
 	data, err := os.ReadFile(tokenFile)
 	if err == nil {
 		var cfg Config
 		if err := json.Unmarshal(data, &cfg); err == nil && cfg.JwtServiceToken != "" {
+			serviceConfig = &cfg
 			if cfg.JwtServiceUser != "" {
 				opts.SetUsername(cfg.JwtServiceUser)
 			} else {
@@ -56,17 +73,89 @@ func Init() error {
 	return nil
 }
 
+// resubscribeActiveSessions re-subscribes all active recording sessions after a reconnect.
+func resubscribeActiveSessions(c mqtt.Client) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	for key, session := range sessions {
+		handler := makeMessageHandler(session)
+		if token := c.Subscribe(session.Topic, 0, handler); token.Wait() && token.Error() != nil {
+			log.Printf("Error: Failed to re-subscribe session %s: %v", key, token.Error())
+		} else {
+			log.Printf("Re-subscribed session %s to %s", key, session.Topic)
+		}
+	}
+}
+
 // Recording tracking
 var (
 	sessions = make(map[string]*RecordingSession)
 	mu       sync.Mutex
 )
 
+// RecordingSession tracks a single active recording to a scene
 type RecordingSession struct {
 	Namespace string
 	SceneId   string
 	Topic     string
 	File      *os.File
+	Writer    *bufio.Writer
+	writeMu   sync.Mutex // serializes concurrent MQTT callback writes
+}
+
+// writeLineToSession safely writes a line to the session's buffered writer
+func (s *RecordingSession) writeLineToSession(line string) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	s.Writer.WriteString(line)
+	s.Writer.WriteString("\n")
+}
+
+// flushAndClose flushes the buffered writer and closes the underlying file
+func (s *RecordingSession) flushAndClose() error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if err := s.Writer.Flush(); err != nil {
+		s.File.Close()
+		return fmt.Errorf("flush error: %v", err)
+	}
+	if err := s.File.Sync(); err != nil {
+		s.File.Close()
+		return fmt.Errorf("sync error: %v", err)
+	}
+	return s.File.Close()
+}
+
+// publishChatCtrl sends a chat control plane message for recording state changes
+func publishChatCtrl(namespace, sceneId, text string) {
+	chatTopicArgs := map[string]string{
+		"nameSpace":  namespace,
+		"sceneName":  sceneId,
+		"userClient": "arena-recorder",
+		"idTag":      "recorder",
+	}
+	chatTopic := FormatTopic(Topics.Publish.SceneChat, chatTopicArgs)
+	chatMsg := []byte(fmt.Sprintf(`{"object_id": "recorder", "action": "recording", "type": "chat-ctrl", "text": "%s", "dn": "Recorder"}`, text))
+	client.Publish(chatTopic, 1, true, chatMsg)
+}
+
+// makeMessageHandler creates the MQTT message handler closure for a recording session.
+// This is extracted so it can be reused during reconnection re-subscription.
+func makeMessageHandler(session *RecordingSession) mqtt.MessageHandler {
+	return func(c mqtt.Client, msg mqtt.Message) {
+		var payload map[string]interface{}
+		if err := json.Unmarshal(msg.Payload(), &payload); err == nil {
+			// Inject server receipt timestamp to guarantee monotonically increasing time
+			payload["timestamp"] = time.Now().Format(time.RFC3339Nano)
+			if b, err := json.Marshal(payload); err == nil {
+				session.writeLineToSession(string(b))
+				return
+			}
+		}
+		// Fallback if parsing fails — write raw payload
+		session.writeLineToSession(string(msg.Payload()))
+	}
 }
 
 func StartRecording(namespace, sceneId string) error {
@@ -87,6 +176,8 @@ func StartRecording(namespace, sceneId string) error {
 		return fmt.Errorf("could not create recording file: %v", err)
 	}
 
+	writer := bufio.NewWriterSize(file, 64*1024) // 64KB write buffer
+
 	topicArgs := map[string]string{
 		"nameSpace": namespace,
 		"sceneName": sceneId,
@@ -100,71 +191,47 @@ func StartRecording(namespace, sceneId string) error {
 		SceneId:   sceneId,
 		Topic:     sceneTopic,
 		File:      file,
+		Writer:    writer,
 	}
 
 	// Fetch initial state from arena-persist
 	persistURL := fmt.Sprintf("http://arena-persist:8884/persist/%s/%s", namespace, sceneId)
-	if err := captureInitialState(persistURL, session.File); err != nil {
+	if err := captureInitialState(persistURL, session); err != nil {
 		log.Printf("Warning: Failed to capture initial state: %v", err)
 		// We still continue to record live events
 	}
 
-	// Publish Recording banner via Chat Control Plane
-	chatTopicArgs := map[string]string{
-		"nameSpace":  namespace,
-		"sceneName":  sceneId,
-		"userClient": "arena-recorder",
-		"idTag":      "recorder",
-	}
-	chatTopic := FormatTopic(Topics.Publish.SceneChat, chatTopicArgs)
-	chatMsg := []byte(`{"object_id": "recorder", "action": "recording", "type": "chat-ctrl", "text": "recording_started", "dn": "Recorder"}`)
-	client.Publish(chatTopic, 1, true, chatMsg)
-
-	// Message handler
-	handler := func(client mqtt.Client, msg mqtt.Message) {
-		var payload map[string]interface{}
-		if err := json.Unmarshal(msg.Payload(), &payload); err == nil {
-			// Inject server receipt timestamp to guarantee monotonically increasing time
-			payload["timestamp"] = time.Now().Format(time.RFC3339Nano)
-			if b, err := json.Marshal(payload); err == nil {
-				session.File.WriteString(string(b) + "\n")
-				return
-			}
-		}
-		// Fallback if parsing fails
-		line := string(msg.Payload()) + "\n"
-		session.File.WriteString(line)
-	}
-
+	// Subscribe to the scene topic BEFORE publishing chat-ctrl
+	handler := makeMessageHandler(session)
 	if token := client.Subscribe(session.Topic, 0, handler); token.Wait() && token.Error() != nil {
-		session.File.Close()
+		session.flushAndClose()
+		// Publish recording_failed so arena-web-core can display it
+		publishChatCtrl(namespace, sceneId, "recording_failed")
 		return fmt.Errorf("failed to subscribe: %v", token.Error())
 	}
+
+	// Publish recording_started banner only after successful subscription
+	publishChatCtrl(namespace, sceneId, "recording_started")
 
 	sessions[key] = session
 	log.Printf("Started recording %s to %s", key, filename)
 	return nil
 }
 
-func captureInitialState(persistURL string, file *os.File) error {
+func captureInitialState(persistURL string, session *RecordingSession) error {
 	// Call persist to get initial objects
 	req, err := http.NewRequest("GET", persistURL, nil)
 	if err != nil {
 		return err
 	}
 
-	// We should include the jwt_service_token if it exists, since persist requires auth for private scenes
-	tokenFile := "/app/config.json"
-	data, err := os.ReadFile(tokenFile)
-	if err == nil {
-		var cfg Config
-		if err := json.Unmarshal(data, &cfg); err == nil && cfg.JwtServiceToken != "" {
-			req.AddCookie(&http.Cookie{Name: "mqtt_token", Value: cfg.JwtServiceToken})
-		}
+	// Use the cached service config for auth
+	if serviceConfig != nil && serviceConfig.JwtServiceToken != "" {
+		req.AddCookie(&http.Cookie{Name: "mqtt_token", Value: serviceConfig.JwtServiceToken})
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -184,16 +251,16 @@ func captureInitialState(persistURL string, file *os.File) error {
 	for _, obj := range objects {
 		obj["action"] = "create"
 		obj["timestamp"] = now
-		
+
 		// Map 'attributes' from MongoDB schema to 'data' for MQTT wire protocol schema
 		if attr, ok := obj["attributes"]; ok {
 			obj["data"] = attr
 			delete(obj, "attributes")
 		}
-		
+
 		b, err := json.Marshal(obj)
 		if err == nil {
-			file.WriteString(string(b) + "\n")
+			session.writeLineToSession(string(b))
 		}
 	}
 
@@ -210,20 +277,19 @@ func StopRecording(namespace, sceneId string) error {
 		return fmt.Errorf("not recording %s", key)
 	}
 
-	client.Unsubscribe(session.Topic).Wait()
-	session.File.Close()
+	// Unsubscribe and check for errors
+	if token := client.Unsubscribe(session.Topic); token.Wait() && token.Error() != nil {
+		log.Printf("Warning: Failed to unsubscribe %s: %v", session.Topic, token.Error())
+	}
+
+	// Flush buffered writes, sync to disk, and close
+	if err := session.flushAndClose(); err != nil {
+		log.Printf("Warning: Error closing recording file for %s: %v", key, err)
+	}
 	delete(sessions, key)
 
 	// Publish Recording banner stop via Chat Control Plane
-	topicArgs := map[string]string{
-		"nameSpace":  namespace,
-		"sceneName":  sceneId,
-		"userClient": "arena-recorder",
-		"idTag":      "recorder",
-	}
-	chatTopic := FormatTopic(Topics.Publish.SceneChat, topicArgs)
-	chatMsg := []byte(`{"object_id": "recorder", "action": "recording", "type": "chat-ctrl", "text": "recording_stopped", "dn": "Recorder"}`)
-	client.Publish(chatTopic, 1, true, chatMsg)
+	publishChatCtrl(namespace, sceneId, "recording_stopped")
 
 	log.Printf("Stopped recording %s", key)
 	return nil
