@@ -1,16 +1,47 @@
 package auth
 
 import (
+	"crypto/rsa"
 	"errors"
+	"log"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/arenaxr/arena-recorder/mqtt"
 	"github.com/golang-jwt/jwt/v4"
 )
 
-var JWKSecret = []byte("TODO_LOAD_FROM_ENV") // In production this would use the real JWK logic config
+// Cached RSA public key, parsed once at first use via sync.Once
+var (
+	cachedPubKey *rsa.PublicKey
+	pubKeyOnce   sync.Once
+	pubKeyErr    error
+)
+
+// loadPublicKey reads and parses the RSA public key from the mounted PEM file.
+// Called once via sync.Once to avoid redundant disk I/O and parsing on every request.
+func loadPublicKey() (*rsa.PublicKey, error) {
+	pubKeyOnce.Do(func() {
+		keyPath := "/app/jwt.public.pem" // mounted from docker-compose
+		keyBytes, err := os.ReadFile(keyPath)
+		if err != nil {
+			pubKeyErr = errors.New("could not read jwt public key")
+			log.Printf("Error: Failed to read JWT public key from %s: %v", keyPath, err)
+			return
+		}
+
+		cachedPubKey, pubKeyErr = jwt.ParseRSAPublicKeyFromPEM(keyBytes)
+		if pubKeyErr != nil {
+			pubKeyErr = errors.New("could not parse rsa public key")
+			log.Printf("Error: Failed to parse RSA public key: %v", pubKeyErr)
+			return
+		}
+		log.Println("Loaded and cached RSA public key for JWT validation")
+	})
+	return cachedPubKey, pubKeyErr
+}
 
 type ArenaClaims struct {
 	Subs []string `json:"subs"`
@@ -30,17 +61,7 @@ func ValidateMQTTToken(r *http.Request) (*ArenaClaims, error) {
 			return nil, errors.New("unexpected signing method")
 		}
 
-		keyBytes, err := os.ReadFile("jwt.public.pem") // mounted from docker-compose
-		if err != nil {
-			return nil, errors.New("could not read jwt public key")
-		}
-
-		pubKey, err := jwt.ParseRSAPublicKeyFromPEM(keyBytes)
-		if err != nil {
-			return nil, errors.New("could not parse rsa public key")
-		}
-
-		return pubKey, nil
+		return loadPublicKey()
 	})
 
 	if err != nil || !token.Valid {
@@ -55,9 +76,8 @@ func ValidateMQTTToken(r *http.Request) (*ArenaClaims, error) {
 	return claims, nil
 }
 
-// Function to roughly match MQTTPattern
+// MatchTopic performs a simple wildcard match for MQTT topic patterns (+ and #)
 func MatchTopic(pattern, topic string) bool {
-	// A simple wildcard matcher for MQTT (+ and #)
 	patternParts := strings.Split(pattern, "/")
 	topicParts := strings.Split(topic, "/")
 
