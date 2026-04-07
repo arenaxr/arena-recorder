@@ -2,8 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/arenaxr/arena-recorder/auth"
@@ -16,6 +18,7 @@ func StartServer(addr string) error {
 	http.HandleFunc("/recorder/list", listRecordingsHandler)
 	http.HandleFunc("/recorder/status", recordingStatusHandler)
 	http.HandleFunc("/recorder/files/", serveRecordingFileHandler)
+	log.Printf("Starting REST API server on %s", addr)
 	return http.ListenAndServe(addr, nil)
 }
 
@@ -59,6 +62,7 @@ func startRecordingHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "recording_started"})
 }
@@ -101,6 +105,7 @@ func stopRecordingHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "recording_stopped"})
 }
@@ -123,11 +128,12 @@ func listRecordingsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var recordings []map[string]string
+	// Initialize as empty slice so JSON encodes as [] instead of null
+	recordings := make([]map[string]string, 0)
 	for _, f := range files {
 		if !f.IsDir() && strings.HasSuffix(f.Name(), ".jsonl") {
 			name := strings.TrimSuffix(f.Name(), ".jsonl")
-			
+
 			var namespace, sceneId, timestamp string
 			parts := strings.Split(name, "~")
 			if len(parts) == 3 {
@@ -194,20 +200,23 @@ func serveRecordingFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := auth.ValidateMQTTToken(r)
+	claims, err := auth.ValidateMQTTToken(r)
 	if err != nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	filename := strings.TrimPrefix(r.URL.Path, "/recorder/files/")
-	if filename == "" || strings.Contains(filename, "..") || !strings.HasSuffix(filename, ".jsonl") {
+
+	// Strict path sanitization: only allow flat filenames (no directory traversal)
+	cleanName := filepath.Base(filename)
+	if cleanName != filename || filename == "" || !strings.HasSuffix(filename, ".jsonl") {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
 
 	name := strings.TrimSuffix(filename, ".jsonl")
-	
+
 	var namespace, sceneId string
 	parts := strings.Split(name, "~")
 	if len(parts) == 3 {
@@ -217,6 +226,22 @@ func serveRecordingFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	if namespace == "" || sceneId == "" {
 		http.Error(w, "Invalid filename format", http.StatusBadRequest)
+		return
+	}
+
+	// Enforce ACL: user must have subscribe or publish rights to the scene
+	// NOTE: arena-web-core /replay page should re-request the JWT token (with filled in
+	// namespace/sceneId params in the user/mqtt_auth request) before each namespace/sceneId
+	// change to ensure the JWT has the required subs rights for the specific scene.
+	topicArgs := map[string]string{
+		"nameSpace": namespace,
+		"sceneName": sceneId,
+	}
+	topic := mqtt.FormatTopic(mqtt.Topics.Subscribe.ScenePublic, topicArgs)
+	topic = strings.ReplaceAll(topic, "+/+/+", "#")
+	if claims.Subject != namespace && namespace != "public" &&
+		!auth.HasSubRight(claims, topic) && !auth.HasPublRight(claims, topic) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
