@@ -30,4 +30,3 @@ All traffic is routed natively through the main Nginx router block `/recorder/`.
 
 ## Development & Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [REQUIREMENTS.md](REQUIREMENTS.md) for deeper architecture specifics on how to extend and maintain this service.
-Use standard `go mod` commands if adding new dependencies, keeping the surface area as lean as possible.
