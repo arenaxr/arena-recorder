@@ -24,12 +24,6 @@ To develop the `arena-recorder` locally:
 - Use contextual logging where appropriate to track goroutine lifecycles and MQTT buffering states.
 - Ensure all HTTP handlers return standard JSON error payloads on failure.
 
-## Pull Requests
-1. Fork the repository and create your feature branch: `git checkout -b feature/my-new-feature`
-2. Commit your changes following [Conventional Commits](https://www.conventionalcommits.org/): `git commit -m "feat: Add new awesome feature"`
-3. Push to the branch: `git push origin feature/my-new-feature`
-4. Submit a pull request.
-
 The `arena-recorder` uses [Release Please](https://github.com/googleapis/release-please) to automate CHANGELOG generation and semantic versioning. Your PR titles *must* follow Conventional Commit standards (e.g., `feat:`, `fix:`, `chore:`).
 
 ## Architecture Constraints & Code Maintenance Instructions
