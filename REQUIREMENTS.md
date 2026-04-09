@@ -30,7 +30,7 @@ graph TD
 
     clients -->|GET/POST /recorder/| nginx
     nginx -->|proxy port 8885| restAPI
-    
+
     recorder -->|GET /persist/:ns/:scene| persist
 ```
 
@@ -90,20 +90,20 @@ sequenceDiagram
     N->>R: Forward mapped request
     R->>Auth: Validate mqtt_token Cookie & Publish Claims
     Auth-->>R: Approved (claims match ACL logic)
-    
+
     R->>P: GET /persist/{namespace}/{scene}
     P-->>R: Return Current State Collection
     R->>D: Inject initial keyframe mutations as 'create' stream loop
-    
+
     R->>M: Subscribe to realm/s/{namespace}/{scene}/#
     R->>M: Publish Chat-Ctrl System Alert ('recording_started')
     R-->>C: 200 OK
-    
+
     loop Incoming Live Scene Mutations
         M->>R: Receive incoming JSON object (move/delete/update)
         R->>D: Stamp server time & Append JSONL line chunk
     end
-    
+
     C->>N: GET /recorder/list
     N->>R: Proxy mapping List Recordings Query
     R->>Auth: Validate Subscribe Claims
@@ -117,4 +117,5 @@ sequenceDiagram
 - **Manual Time-lapse Construction API:** We require the architecture to support generating composite `.jsonl` recordings entirely offline without an active live session. For example, injecting a weekly "splat scan" of a construction project across a year at distinct synthetic timestamps to form an accurate time-lapse. This would require an API/tooling suite to programmatically merge multiple discrete asset dumps onto an arbitrary timeline, allowing `arena-web-core`'s replay scrubber to cycle through long-term physical site topologies natively.
 - **Multiplayer Watch Parties:** Currently `arena-recorder` enforces localized file streaming mapping heavily optimizing client-side scrubber parsing performance via `replay.js`. Expanding on this architecture for multiplayer watch party viewing involves flipping the `Go` timeline pump: using `arena-recorder` as the central loop dynamically blasting historic parsed events onto ephemeral network proxies like `realm/s/<namespace>/replay-<uuid>` securely. This was deferred due to strict backend constraints requiring real-time ACL Mosquitto validation proxying.
 - **Recording Lifecycle and Storage Management:** Active recordings can rapidly consume storage space. We require the implementation of manual deletion endpoints in the API (and paired UI buttons) to let users prune obsolete runs. Additionally, a recurring cron-job worker must be introduced to automatically monitor and purge old/orphaned recordings based on maximum disk capacity constraints or an explicit age-based Time-to-Live (TTL) expiration strategy.
+- **Jitsi Recorder Service Integration:** Integrate with the Jitsi recorder service to enable replaying 3D video conference meetings, using canvases for class recording, and creating instructional ARENA videos.
 - Scene snapshot / versioning integration matching persist definitions.
