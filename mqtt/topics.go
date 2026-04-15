@@ -9,23 +9,23 @@ var Realm = "realm"
 
 // TopicTokens define the indices of parts in a topic hierarchy
 var TopicTokens = struct {
-	Realm       int
-	Type        int
-	Namespace   int
-	SceneName   int
+	Realm        int
+	Type         int
+	Namespace    int
+	SceneName    int
 	SceneMsgType int
-	UserClient  int
-	UUID        int
-	ToUID       int
+	UserClient   int
+	UUID         int
+	ToUID        int
 }{
-	Realm:       0,
-	Type:        1,
-	Namespace:   2,
-	SceneName:   3,
+	Realm:        0,
+	Type:         1,
+	Namespace:    2,
+	SceneName:    3,
 	SceneMsgType: 4,
-	UserClient:  5,
-	UUID:        6,
-	ToUID:       7,
+	UserClient:   5,
+	UUID:         6,
+	ToUID:        7,
 }
 
 var SceneMsgTypes = struct {

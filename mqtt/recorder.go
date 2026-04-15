@@ -270,13 +270,13 @@ func StartRecording(namespace, sceneId string) error {
 	sceneTopic = strings.ReplaceAll(sceneTopic, "+/+/+", "#")
 
 	session := &RecordingSession{
-		Namespace:         namespace,
-		SceneId:           sceneId,
-		Topic:             sceneTopic,
-		File:              file,
-		Writer:            writer,
-		compactedState:    make(map[string]map[string]interface{}),
-		index:             make([]IndexEntry, 0),
+		Namespace:      namespace,
+		SceneId:        sceneId,
+		Topic:          sceneTopic,
+		File:           file,
+		Writer:         writer,
+		compactedState: make(map[string]map[string]interface{}),
+		index:          make([]IndexEntry, 0),
 	}
 
 	// Fetch initial state from arena-persist
