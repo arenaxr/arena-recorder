@@ -336,21 +336,22 @@ func captureInitialState(persistURL string, session *RecordingSession) error {
 		return err
 	}
 
-	// Write each object as an 'action: create' message
-	now := time.Now().Format(time.RFC3339Nano)
+	// Populate compactedState directly without writing individual create lines.
+	// The subsequent emitKeyframeLocked call captures the full initial state,
+	// so writing N individual messages would be redundant.
 	for _, obj := range objects {
-		obj["action"] = "create"
-		obj["timestamp"] = now
-
 		// Map 'attributes' from MongoDB schema to 'data' for MQTT wire protocol schema
 		if attr, ok := obj["attributes"]; ok {
 			obj["data"] = attr
 			delete(obj, "attributes")
 		}
 
-		b, err := json.Marshal(obj)
-		if err == nil {
-			session.writeLine(now, obj, string(b))
+		if objIdVal, ok := obj["object_id"]; ok {
+			if objId, ok := objIdVal.(string); ok {
+				session.writeMu.Lock()
+				session.compactedState[objId] = deepMerge(session.compactedState[objId], obj)
+				session.writeMu.Unlock()
+			}
 		}
 	}
 
