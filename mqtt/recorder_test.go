@@ -617,7 +617,10 @@ func TestWriteLine_NullComponentInDelta(t *testing.T) {
 	session.File.Close()
 
 	// Read back the second line
-	file, _ := os.Open(path)
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("failed to open temp file %q: %v", path, err)
+	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 1<<20), 1<<20)
@@ -798,9 +801,9 @@ func BenchmarkJSONValEqual(b *testing.B) {
 }
 
 // BenchmarkWriteLine_WithDiff measures the full writeLine path with delta compression.
-// Writes to os.Stdout discarded via ioutil equivalent so disk I/O doesn't skew results.
+// It writes to a buffered temporary file, so results reflect the current file-backed path.
 func BenchmarkWriteLine_WithDiff(b *testing.B) {
-	// Use a temp file; the OS write cache means this is mostly in-memory.
+	// Use a temp file; OS buffering and the write cache keep most writes in-memory.
 	dir := b.TempDir()
 	file, err := os.OpenFile(dir+"/bench.jsonl", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
@@ -839,6 +842,9 @@ func BenchmarkWriteLine_WithDiff(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
+		// Reset byte counters to prevent keyframe emission from skewing results.
+		session.bytesWritten = 0
+		session.lastKeyframeBytes = 0
 		f := frames[i%len(frames)]
 		payload := map[string]interface{}{
 			"object_id": "Ivan_cam", "action": "update", "type": "object", "ttl": 30.0,
@@ -874,7 +880,7 @@ func BenchmarkWriteLine_NoDiff(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	// Each iteration uses a fresh object_id so compactedState never has prior state.
+	// Each iteration resets compactedState so there's never prior state for delta diffing.
 	for i := 0; i < b.N; i++ {
 		f := frames[i%len(frames)]
 		payload := map[string]interface{}{
@@ -933,7 +939,11 @@ func TestWriteLine_SizeReduction(t *testing.T) {
 	t.Logf("Saving       : %.1f%%", saving)
 
 	// Read back compressed lines so we can log them
-	file, _ := os.Open(path)
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("failed to open compressed file: %v", err)
+	}
+	defer file.Close()
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 1<<20), 1<<20)
 	i := 0

@@ -2,6 +2,7 @@ package mqtt
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -154,8 +155,8 @@ func shallowDiff(prev, next map[string]interface{}) map[string]interface{} {
 // jsonValEqual compares two JSON-decoded values for equality.
 // Uses a type-switch over the concrete types json.Unmarshal produces
 // (float64, bool, string, nil) to avoid allocations on the hot path.
-// Falls back to json.Marshal only for []interface{} (arrays), which are
-// rare in ARENA message payloads.
+// Falls back to json.Marshal for compound types (map[string]interface{},
+// []interface{}), comparing their serialized byte representation.
 func jsonValEqual(a, b interface{}) bool {
 	switch av := a.(type) {
 	case float64:
@@ -176,7 +177,7 @@ func jsonValEqual(a, b interface{}) bool {
 		if errA != nil || errB != nil {
 			return false
 		}
-		return string(aj) == string(bj)
+		return bytes.Equal(aj, bj)
 	}
 }
 
@@ -231,6 +232,12 @@ func (s *RecordingSession) writeLine(timestamp string, payload map[string]interf
 		// Single marshal point: payload contains diffed data if applicable.
 		if b, err := json.Marshal(payload); err == nil {
 			line = string(b)
+		} else {
+			log.Printf("Warning: failed to marshal payload, skipping write: %v", err)
+			if restoreData != nil {
+				payload["data"] = restoreData
+			}
+			return
 		}
 
 		// Restore original data before merging into compacted state.
