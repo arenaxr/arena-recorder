@@ -134,25 +134,114 @@ func deepMerge(dst, src map[string]interface{}) map[string]interface{} {
 	return dst
 }
 
+// shallowDiff compares the top-level keys of two maps and returns only
+// the entries whose values differ.  Each value is compared atomically
+// (via jsonValEqual) rather than recursing into nested maps.  This is
+// required because ARENA components like position, rotation, and scale
+// are treated as atomic by the client — sending a partial sub-object
+// (e.g. {x:2} without y,z) would be misinterpreted.
+func shallowDiff(prev, next map[string]interface{}) map[string]interface{} {
+	delta := make(map[string]interface{})
+	for k, newVal := range next {
+		oldVal, exists := prev[k]
+		if !exists || !jsonValEqual(oldVal, newVal) {
+			delta[k] = newVal
+		}
+	}
+	return delta
+}
+
+// jsonValEqual compares two JSON-decoded values for equality.
+// Uses a type-switch over the concrete types json.Unmarshal produces
+// (float64, bool, string, nil) to avoid allocations on the hot path.
+// Falls back to json.Marshal only for []interface{} (arrays), which are
+// rare in ARENA message payloads.
+func jsonValEqual(a, b interface{}) bool {
+	switch av := a.(type) {
+	case float64:
+		bv, ok := b.(float64)
+		return ok && av == bv
+	case bool:
+		bv, ok := b.(bool)
+		return ok && av == bv
+	case string:
+		bv, ok := b.(string)
+		return ok && av == bv
+	case nil:
+		return b == nil
+	default:
+		// arrays ([]interface{}) — marshal both sides
+		aj, errA := json.Marshal(a)
+		bj, errB := json.Marshal(b)
+		if errA != nil || errB != nil {
+			return false
+		}
+		return string(aj) == string(bj)
+	}
+}
+
 // writeLine safely writes a line to the session's buffered writer, maintains compactedState,
-// and ensures we emit keyframes every 2MB of deltas.
-func (s *RecordingSession) writeLine(timestamp string, payload map[string]interface{}, line string) {
+// and ensures we emit keyframes every 1MB of deltas.
+//
+// For "update" messages we delta-compress the `data` sub-object: only fields
+// that changed relative to the last known state are written. All top-level
+// fields (object_id, action, type, timestamp, ttl, …) are always preserved.
+// If `data` is identical to the previous state (e.g. a pure TTL heartbeat)
+// we emit `data:{}` — sufficient for TTL refresh since the last keyframe
+// carries the full object state for the replay client.
+//
+// When payload is non-nil, writeLine owns the single marshal point — the caller
+// should NOT pre-marshal. rawFallback is used only when payload is nil
+// (unparseable MQTT messages).
+func (s *RecordingSession) writeLine(timestamp string, payload map[string]interface{}, rawFallback string) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	// Maintain state
+	var line string
+
 	if payload != nil {
-		if objIdVal, ok := payload["object_id"]; ok {
-			if objId, okStr := objIdVal.(string); okStr {
-				actionVal, _ := payload["action"]
-				action, _ := actionVal.(string)
-				if action == "delete" {
-					delete(s.compactedState, objId)
-				} else if action == "create" || action == "update" {
-					s.compactedState[objId] = deepMerge(s.compactedState[objId], payload)
+		// Extract identity fields upfront.
+		var objId, action string
+		if v, ok := payload["object_id"].(string); ok {
+			objId = v
+		}
+		if v, ok := payload["action"].(string); ok {
+			action = v
+		}
+
+		// State tracking and delta compression.
+		var restoreData map[string]interface{}
+		if objId != "" {
+			if action == "delete" {
+				delete(s.compactedState, objId)
+			} else if action == "create" || action == "update" {
+				// Delta compression: update only, requires prior state.
+				if action == "update" {
+					if prev, hasPrev := s.compactedState[objId]; hasPrev {
+						if newData, hasData := payload["data"].(map[string]interface{}); hasData {
+							prevData, _ := prev["data"].(map[string]interface{})
+							restoreData = newData
+							payload["data"] = shallowDiff(prevData, newData)
+						}
+					}
 				}
 			}
 		}
+
+		// Single marshal point: payload contains diffed data if applicable.
+		if b, err := json.Marshal(payload); err == nil {
+			line = string(b)
+		}
+
+		// Restore original data before merging into compacted state.
+		if restoreData != nil {
+			payload["data"] = restoreData
+		}
+		if objId != "" && (action == "create" || action == "update") {
+			s.compactedState[objId] = deepMerge(s.compactedState[objId], payload)
+		}
+	} else {
+		line = rawFallback
 	}
 
 	n, _ := s.Writer.WriteString(line)
@@ -224,6 +313,7 @@ func publishChatCtrl(namespace, sceneId, text string) {
 
 // makeMessageHandler creates the MQTT message handler closure for a recording session.
 // This is extracted so it can be reused during reconnection re-subscription.
+// Marshalling is deferred entirely to writeLine (single marshal point).
 func makeMessageHandler(session *RecordingSession) mqtt.MessageHandler {
 	return func(c mqtt.Client, msg mqtt.Message) {
 		var payload map[string]interface{}
@@ -231,10 +321,8 @@ func makeMessageHandler(session *RecordingSession) mqtt.MessageHandler {
 		if err := json.Unmarshal(msg.Payload(), &payload); err == nil {
 			// Inject server receipt timestamp to guarantee monotonically increasing time
 			payload["timestamp"] = ts
-			if b, err := json.Marshal(payload); err == nil {
-				session.writeLine(ts, payload, string(b))
-				return
-			}
+			session.writeLine(ts, payload, "")
+			return
 		}
 		// Fallback if parsing fails — write raw payload
 		session.writeLine(ts, nil, string(msg.Payload()))
