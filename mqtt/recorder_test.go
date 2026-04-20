@@ -686,11 +686,11 @@ func TestWriteLine_DeltaCompression(t *testing.T) {
 	// Seed state with a create (no diff on first occurrence)
 	create := full(2.965, 8.877, 1.0)
 	create["action"] = "create"
-	session.writeLine("ts1", create, marshalLine(t, create))
+	session.writeLine("ts1", create, "")
 
 	// Second message — position change only
 	msg2 := full(2.852, 8.88, 1.0) // x and z change; rotation unchanged; arena-user unchanged
-	session.writeLine("ts2", msg2, marshalLine(t, msg2))
+	session.writeLine("ts2", msg2, "")
 
 	session.Writer.Flush()
 	session.File.Close()
@@ -922,7 +922,7 @@ func TestWriteLine_SizeReduction(t *testing.T) {
 		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
 			t.Fatalf("bad fixture JSON: %v", err)
 		}
-		session.writeLine("ts", payload, raw)
+		session.writeLine("ts", payload, "")
 	}
 	session.Writer.Flush()
 	session.File.Close()
@@ -951,7 +951,7 @@ func TestWriteLine_SizeReduction(t *testing.T) {
 		t.Logf("  [%d] %d bytes: %s", i+1, len(scanner.Text()), scanner.Text())
 		i++
 	}
-	file.Close()
+
 
 	if saving < 30 {
 		t.Errorf("expected at least 30%% size reduction, got %.1f%%", saving)
