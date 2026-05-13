@@ -13,6 +13,7 @@ import (
 )
 
 func StartServer(addr string) error {
+	http.HandleFunc("/recorder/health", healthHandler)
 	http.HandleFunc("/recorder/start", startRecordingHandler)
 	http.HandleFunc("/recorder/stop", stopRecordingHandler)
 	http.HandleFunc("/recorder/list", listRecordingsHandler)
@@ -20,6 +21,12 @@ func StartServer(addr string) error {
 	http.HandleFunc("/recorder/files/", serveRecordingFileHandler)
 	log.Printf("Starting REST API server on %s", addr)
 	return http.ListenAndServe(addr, nil)
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 func startRecordingHandler(w http.ResponseWriter, r *http.Request) {
