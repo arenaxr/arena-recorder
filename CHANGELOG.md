@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0](https://github.com/arenaxr/arena-recorder/compare/v2.0.0...v2.1.0) (2026-05-13)
+
+
+### Features
+
+* add public /recorder/health endpoint for uptime monitoring ([07f3831](https://github.com/arenaxr/arena-recorder/commit/07f383159ffbc4afe6dc84a3c30f0405eba3460d))
+
 ## 2.0.0 (2026-05-09)
 
 
