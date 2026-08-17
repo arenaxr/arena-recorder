@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -58,6 +59,38 @@ func requestWithToken(t *testing.T, token string) *http.Request {
 	r := httptest.NewRequest(http.MethodPost, "/record/start", nil)
 	r.AddCookie(&http.Cookie{Name: "mqtt_token", Value: token})
 	return r
+}
+
+// tamperSignature flips every bit of one byte in the middle of the token's
+// signature and returns the reassembled token. Decoding the signature segment,
+// mutating a real signature byte and re-encoding guarantees the signature bytes
+// differ from the original for every key.
+//
+// Substituting a character at the end of the base64 segment instead would not be
+// reliable: a 256-byte RS256 signature encodes to 342 raw-base64url characters,
+// which carry 2052 bits for 2048 bits of signature, so the final character holds
+// only two significant bits alongside four unused padding bits. Go's non-strict
+// decoder ignores those padding bits, so many substitutions of the final
+// character decode to byte-identical signatures and the token still verifies.
+func tamperSignature(t *testing.T, token string) string {
+	t.Helper()
+	dot := strings.LastIndexByte(token, '.')
+	if dot < 0 {
+		t.Fatalf("token has no signature segment: %q", token)
+	}
+	signed, sigSegment := token[:dot+1], token[dot+1:]
+
+	sig, err := base64.RawURLEncoding.DecodeString(sigSegment)
+	if err != nil {
+		t.Fatalf("could not decode signature segment: %v", err)
+	}
+	if len(sig) == 0 {
+		t.Fatal("token carries an empty signature")
+	}
+
+	sig[len(sig)/2] ^= 0xFF
+
+	return signed + base64.RawURLEncoding.EncodeToString(sig)
 }
 
 func testClaims(subject string, subs, publ []string) *ArenaClaims {
@@ -131,12 +164,7 @@ func TestValidateMQTTToken_RejectsBadTokens(t *testing.T) {
 	forged := signToken(t, foreignKey, testClaims("alice", nil, nil))
 
 	// A token whose signature bytes have been altered.
-	tampered := signToken(t, signingKey, testClaims("alice", nil, nil))
-	if tampered[len(tampered)-1] == 'A' {
-		tampered = tampered[:len(tampered)-1] + "B"
-	} else {
-		tampered = tampered[:len(tampered)-1] + "A"
-	}
+	tampered := tamperSignature(t, signToken(t, signingKey, testClaims("alice", nil, nil)))
 
 	// Correct payload, but symmetrically signed: the keyfunc must refuse any
 	// non-RSA signing method rather than treat the HMAC secret as a key.
