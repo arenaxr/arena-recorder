@@ -216,18 +216,21 @@ func TestValidateMQTTToken_RejectsBadTokens(t *testing.T) {
 	}
 }
 
-// TestValidateMQTTToken_NoExpiryAccepted documents current behavior: exp is not
-// a required claim, so a token that never expires is accepted.
-func TestValidateMQTTToken_NoExpiryAccepted(t *testing.T) {
+// TestValidateMQTTToken_RejectsMissingExpiry pins that exp is required: a
+// correctly signed token with no exp would otherwise be valid forever.
+func TestValidateMQTTToken_RejectsMissingExpiry(t *testing.T) {
 	claims := testClaims("alice", nil, nil)
 	claims.ExpiresAt = nil
 
 	got, err := ValidateMQTTToken(requestWithToken(t, signToken(t, signingKey, claims)))
-	if err != nil {
-		t.Fatalf("expected token without exp to be accepted, got error: %v", err)
+	if err == nil {
+		t.Fatalf("expected token without exp to be rejected, got claims %v", got)
 	}
-	if got.ExpiresAt != nil {
-		t.Errorf("expected nil exp, got %v", got.ExpiresAt.Time)
+	if err.Error() != "token missing expiry" {
+		t.Errorf("expected %q, got %q", "token missing expiry", err.Error())
+	}
+	if got != nil {
+		t.Errorf("expected nil claims, got %v", got)
 	}
 }
 
