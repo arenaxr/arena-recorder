@@ -523,7 +523,7 @@ func TestShallowDiff_HeartbeatProducesEmptyDelta(t *testing.T) {
 			"color": "#eca7ef", "displayName": "Ivanchrome2",
 			"hasAudio": false, "hasVideo": false,
 			"headModelPath": "/static/models/avatars/DamagedHelmet.glb",
-			"jitsiId": "7210ee23", "presence": "Standard",
+			"jitsiId":       "7210ee23", "presence": "Standard",
 		},
 		"object_type": "camera",
 		"position":    map[string]interface{}{"x": 1.484, "y": 1.6, "z": 6.366},
@@ -674,7 +674,7 @@ func TestWriteLine_DeltaCompression(t *testing.T) {
 					"color": "#eca7ef", "displayName": "Ivanchrome2",
 					"hasAudio": false, "hasVideo": false,
 					"headModelPath": "/static/models/avatars/DamagedHelmet.glb",
-					"jitsiId": "7210ee23", "presence": "Standard",
+					"jitsiId":       "7210ee23", "presence": "Standard",
 				},
 				"object_type": "camera",
 				"position":    map[string]interface{}{"x": x, "y": 1.6, "z": z},
@@ -753,7 +753,7 @@ func cameraData(x, z, rw, rx, ry float64) map[string]interface{} {
 			"color": "#eca7ef", "displayName": "Ivanchrome2",
 			"hasAudio": false, "hasVideo": false,
 			"headModelPath": "/static/models/avatars/DamagedHelmet.glb",
-			"jitsiId": "7210ee23", "presence": "Standard",
+			"jitsiId":       "7210ee23", "presence": "Standard",
 		},
 		"object_type": "camera",
 		"position":    map[string]interface{}{"x": x, "y": 1.6, "z": z},
@@ -951,7 +951,6 @@ func TestWriteLine_SizeReduction(t *testing.T) {
 		t.Logf("  [%d] %d bytes: %s", i+1, len(scanner.Text()), scanner.Text())
 		i++
 	}
-
 
 	if saving < 30 {
 		t.Errorf("expected at least 30%% size reduction, got %.1f%%", saving)
