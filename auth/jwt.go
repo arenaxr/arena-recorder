@@ -73,6 +73,13 @@ func ValidateMQTTToken(r *http.Request) (*ArenaClaims, error) {
 		return nil, errors.New("invalid claims type")
 	}
 
+	// exp is optional as far as the JWT library is concerned: a token minted
+	// without it verifies forever. Require it, since these tokens gate
+	// recording authorization.
+	if claims.ExpiresAt == nil {
+		return nil, errors.New("token missing expiry")
+	}
+
 	return claims, nil
 }
 
