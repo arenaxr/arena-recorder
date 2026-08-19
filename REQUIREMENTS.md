@@ -44,7 +44,7 @@ graph TD
 | [auth/jwt_test.go](auth/jwt_test.go) | Unit tests for token validation, topic matching, and ACL rights | `TestValidateMQTTToken_*`, `TestMatchTopic`, `TestHasSubRight`, `TestHasPublRight`, `TestCanRecordScene*` |
 | [mqtt/recorder.go](mqtt/recorder.go) | Core engine: MQTT connection, buffered stream capture, keyframing, file system teardown | `Init`, `StartRecording`, `captureInitialState`, `StopRecording`, `IsRecording`, `deepMerge`, `emitKeyframeLocked` |
 | [mqtt/repair.go](mqtt/repair.go) | Offline repair: scans `.jsonl` files and reconstructs missing `keyframe_index` | `RepairIndex`, `RepairAllRecordings`, `HasKeyframeIndex` |
-| [mqtt/recorder_test.go](mqtt/recorder_test.go) | Unit tests for deep merge, state tracking, keyframe emission, and index repair | `TestDeepMerge_*`, `TestStateTracking_*`, `TestKeyframeEmission_*`, `TestRepairIndex_*` |
+| [mqtt/recorder_test.go](mqtt/recorder_test.go) | Unit tests for deep merge, state tracking, keyframe emission, delta compression, line writing, and index repair | `TestDeepMerge_*`, `TestStateTracking_*`, `TestKeyframeEmission_*`, `TestRepairIndex_*`, `TestShallowDiff_*`, `TestWriteLine_*`, `TestHasKeyframeIndex_EmptyFile` |
 | [mqtt/topics.go](mqtt/topics.go) | Pre-defined graph matching logic translating physical scene spaces into Mosquitto string subscriptions | `Topics`, `FormatTopic` |
 
 ## Feature Requirements

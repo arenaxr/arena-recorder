@@ -11,7 +11,7 @@ Orientation for agents (and humans) working in this repo. Detailed docs live in 
 
 ## Tests
 - `go test ./...` — the full suite (38 tests); needs no broker, `arena-persist`, or config file.
-- [auth/jwt_test.go](auth/jwt_test.go) — token validation and topic ACLs. [mqtt/recorder_test.go](mqtt/recorder_test.go) — deep merge, state tracking, keyframing, index repair. `api/server.go` is untested.
+- [auth/jwt_test.go](auth/jwt_test.go) — token validation and topic ACLs. [mqtt/recorder_test.go](mqtt/recorder_test.go) — deep merge, state tracking, keyframing, delta compression, index repair. `api/server.go` is untested.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — the `gofmt`/`build`/`vet`/`test` checks CI gates, and single-package or single-test invocations.
 
 ## Release history
