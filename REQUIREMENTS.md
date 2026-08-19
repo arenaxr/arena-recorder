@@ -41,6 +41,7 @@ graph TD
 | [main.go](main.go) | Main entry: initialize MQTT client and start REST API server | `main` |
 | [api/server.go](api/server.go) | Express-style HTTP REST API handlers with JWT validation | `StartServer`, `startRecordingHandler`, `stopRecordingHandler`, `listRecordingsHandler`, `recordingStatusHandler`, `serveRecordingFileHandler` |
 | [auth/jwt.go](auth/jwt.go) | JWT parsing middleware and ACL (Access Control List) routing rules | `ValidateMQTTToken`, `MatchTopic`, `HasSubRight`, `HasPublRight`, `CanRecordScene` |
+| [auth/jwt_test.go](auth/jwt_test.go) | Unit tests for token validation, topic matching, and ACL rights | `TestValidateMQTTToken_*`, `TestMatchTopic`, `TestHasSubRight`, `TestHasPublRight`, `TestCanRecordScene*` |
 | [mqtt/recorder.go](mqtt/recorder.go) | Core engine: MQTT connection, buffered stream capture, keyframing, file system teardown | `Init`, `StartRecording`, `captureInitialState`, `StopRecording`, `IsRecording`, `deepMerge`, `emitKeyframeLocked` |
 | [mqtt/repair.go](mqtt/repair.go) | Offline repair: scans `.jsonl` files and reconstructs missing `keyframe_index` | `RepairIndex`, `RepairAllRecordings`, `HasKeyframeIndex` |
 | [mqtt/recorder_test.go](mqtt/recorder_test.go) | Unit tests for deep merge, state tracking, keyframe emission, and index repair | `TestDeepMerge_*`, `TestStateTracking_*`, `TestKeyframeEmission_*`, `TestRepairIndex_*` |
