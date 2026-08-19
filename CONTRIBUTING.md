@@ -19,6 +19,31 @@ To develop the `arena-recorder` locally:
 2. Start the local stack using `docker-compose -f docker-compose.localdev.yaml up -d arena-recorder`
 3. The recorder source is mounted via the Dockerfile build step. For hot-reloading (if configured) or testing, you can modify the `.go` source files and rebuild the container.
 
+## Testing
+
+Tests are plain Go unit tests and run on a bare checkout — no MQTT broker, no `arena-persist`, and no `conf/recorder-config.json` required. Run all four checks before committing; CI gates exactly these on every PR and push to `main`.
+
+```sh
+gofmt -l .        # must print nothing
+go build ./...
+go vet ./...
+go test ./...
+```
+
+To narrow while iterating:
+
+```sh
+go test ./mqtt/ -v                              # one package
+go test ./auth/ -run '^TestCanRecordScene$' -v  # one test — anchor the regex
+```
+
+`-run` takes an **unanchored regular expression**, not a prefix: it matches anywhere in the test name. `-run Topic` selects `TestMatchTopic` on a suffix, `-run Right` selects both `TestHasSubRight` and `TestHasPublRight` on a mid-name substring, and the unanchored `-run TestCanRecordScene` also pulls in `TestCanRecordScene_UsesClaimsFromToken`. Anchor with `^…$` when you mean exactly one test.
+
+Coverage lives in [auth/jwt_test.go](auth/jwt_test.go) (token validation and topic ACLs) and [mqtt/recorder_test.go](mqtt/recorder_test.go) (deep merge, state tracking, keyframing, delta compression, index repair). `api/server.go` has no tests yet — exercise handler changes manually against the local stack.
+
+> [!NOTE]
+> `go.mod` requires Go 1.26. With the default `GOTOOLCHAIN=auto` a local Go 1.21 or newer fetches the 1.26 toolchain on first use; Go 1.20 and older have no toolchain switching and fail outright, so upgrade instead.
+
 ## Code Style
 - Follow standard Go formatting guidelines (`gofmt`).
 - Use contextual logging where appropriate to track goroutine lifecycles and MQTT buffering states.
