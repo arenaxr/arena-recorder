@@ -9,6 +9,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0](https://github.com/arenaxr/arena-recorder/compare/v2.1.0...v2.2.0) (2026-09-02)
+
+
+### Features
+
+* **ci:** align action commit SHAs to exact release tags for Dependabot SemVer support ([61a36b2](https://github.com/arenaxr/arena-recorder/commit/61a36b247bff119ce0f927876e7045a413dd2021))
+* **ci:** configure dependabot, pin workflow actions to SHAs, and add agent/contributing docs ([81e8993](https://github.com/arenaxr/arena-recorder/commit/81e899311f6a88b9158d0b48e4459aa48f9e8a76))
+* **ci:** configure dependabot, pin workflow actions to SHAs, and add agent/contributing docs ([4d1aaf5](https://github.com/arenaxr/arena-recorder/commit/4d1aaf58e9bf17ab601d0bf503ce517d9fbf33ce))
+
+
+### Bug Fixes
+
+* reject tokens without an expiry claim ([27f89a7](https://github.com/arenaxr/arena-recorder/commit/27f89a73ecbf4aa4206b8353f98cccbd3f8c1353))
+* reject tokens without an expiry claim ([55fa999](https://github.com/arenaxr/arena-recorder/commit/55fa9998d57e55b481a39e2215b5ab31bec606c7))
+
 ## [2.1.0](https://github.com/arenaxr/arena-recorder/compare/v2.0.0...v2.1.0) (2026-05-13)
 
 
